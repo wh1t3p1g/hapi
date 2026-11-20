@@ -103,6 +103,7 @@ The Hub persists and enforces the lock across clients, restarts, and resume.
 
 ### File browser (`src/routes/sessions/files.tsx`)
 
+- On wide session layouts, the file browser and viewer open on the right while the chat and composer stay available. Narrow layouts use full-page file navigation.
 - Git status view (staged/unstaged files).
 - File search with ripgrep.
 - Navigate to file viewer.
