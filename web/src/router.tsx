@@ -1034,25 +1034,27 @@ const MIN_FILE_SPLIT_WIDTH = 800
 
 function SessionWorkspace({ sessionId }: { sessionId: string }) {
     const { t } = useTranslation()
+    const { canSplitSessionFiles, setCanSplitSessionFiles } = useAppContext()
     const navigate = useNavigate()
     const routeId = useMatches({ select: matches => matches.at(-1)?.routeId })
     const workspaceRef = useRef<HTMLDivElement>(null)
-    const [canSplit, setCanSplit] = useState(false)
     const [sendErrors, setSendErrors] = useState<Record<string, RawSendError>>({})
     const sendErrorIdRef = useRef(0)
     const isChat = routeId === '/sessions/$sessionId'
-    const filePanelOpen = canSplit && isSessionFileRoute(routeId)
+    const filePanelOpen = canSplitSessionFiles && isSessionFileRoute(routeId)
 
     useLayoutEffect(() => {
         const workspace = workspaceRef.current
         if (!workspace) return
-        const measure = () => setCanSplit(workspace.clientWidth >= MIN_FILE_SPLIT_WIDTH)
+        const measure = () => setCanSplitSessionFiles(workspace.clientWidth >= MIN_FILE_SPLIT_WIDTH)
         measure()
-        if (typeof ResizeObserver === 'undefined') return
-        const observer = new ResizeObserver(measure)
-        observer.observe(workspace)
-        return () => observer.disconnect()
-    }, [])
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+        observer?.observe(workspace)
+        return () => {
+            observer?.disconnect()
+            setCanSplitSessionFiles(false)
+        }
+    }, [setCanSplitSessionFiles])
 
     const closeFilePanel = useCallback(() => {
         void navigate({

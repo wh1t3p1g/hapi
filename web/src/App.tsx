@@ -80,6 +80,7 @@ function AppInner() {
     const matchRoute = useMatchRoute()
     const router = useRouter()
     const addToast = useAddToast()
+    const [canSplitSessionFiles, setCanSplitSessionFiles] = useState(false)
 
     useEffect(() => {
         let cancelled = false
@@ -190,6 +191,10 @@ function AppInner() {
     }, [goBack, pathname])
     const queryClient = useQueryClient()
     const sessionMatch = matchRoute({ to: '/sessions/$sessionId' })
+        || (canSplitSessionFiles && (
+            matchRoute({ to: '/sessions/$sessionId/files' })
+            || matchRoute({ to: '/sessions/$sessionId/file' })
+        ))
     const selectedSessionId = sessionMatch && sessionMatch.sessionId !== 'new' ? sessionMatch.sessionId : null
     const { isSyncing, startSync, endSync } = useSyncingState()
     const {
@@ -542,7 +547,9 @@ function AppInner() {
     }
 
     return (
-        <AppContextProvider value={{ api, token, baseUrl, titleSuggestionAvailable }}>
+        <AppContextProvider value={{
+            api, token, baseUrl, titleSuggestionAvailable, canSplitSessionFiles, setCanSplitSessionFiles,
+        }}>
             <VoiceProvider>
                 <PwaUpdateBannerWithStatusOffset
                     isSyncing={revealSyncing}

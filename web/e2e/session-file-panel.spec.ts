@@ -140,6 +140,43 @@ test('lays out a direct file link according to the space left by the session lis
     await expect(composer).toBeVisible()
 })
 
+test('keeps receiving live replies while browsing files beside the conversation', async ({ page }) => {
+    const releaseReply = Promise.withResolvers<void>()
+    const liveReply = 'Live reply while the file preview is open'
+    const isSessionStream = (url: URL) =>
+        url.pathname === '/api/events' && url.searchParams.get('sessionId') === sessionId
+    await page.route(isSessionStream, async route => {
+        await releaseReply.promise
+        const now = Date.now()
+        const event = {
+            type: 'message-received',
+            sessionId,
+            message: {
+                id: 'live-reply',
+                localId: null,
+                seq: 2,
+                createdAt: now,
+                invokedAt: now,
+                content: { role: 'agent', content: { type: 'codex', data: { type: 'message', message: liveReply } } },
+            },
+        }
+        await route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify(event)}\n\n` })
+    })
+    const streamRequest = page.waitForRequest(request => isSessionStream(new URL(request.url())))
+    try {
+        await page.goto(sessionPath)
+        await streamRequest
+        await page.getByRole('button', { name: 'Files', exact: true }).click()
+        const panel = page.getByRole('complementary', { name: 'Files' })
+        await panel.getByText('notes.txt').click()
+        await expect(panel.getByText(fileText)).toBeVisible()
+        releaseReply.resolve()
+        await expect(page.getByText(liveReply, { exact: true })).toBeVisible()
+    } finally {
+        releaseReply.resolve()
+    }
+})
+
 test('keeps full-page file navigation when the conversation has limited space', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(sessionPath)

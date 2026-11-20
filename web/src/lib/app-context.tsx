@@ -6,6 +6,8 @@ type AppContextValue = {
     token: string
     baseUrl: string
     titleSuggestionAvailable?: boolean
+    canSplitSessionFiles: boolean
+    setCanSplitSessionFiles: (canSplit: boolean) => void
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
