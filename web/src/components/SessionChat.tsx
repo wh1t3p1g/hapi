@@ -365,10 +365,8 @@ export function isSelectAllTargetBlocked(target: EventTarget | null): boolean {
  * the editable root is what breaks SelectAll, while focus inside it
  * selects the composer text correctly.
  *
- * This takes over Ctrl/Cmd+A whenever focus is outside the composer
- * (see isSelectAllTargetBlocked) and selects the message thread
- * manually, so select-all + copy restores the expected
- * "select the conversation" behavior.
+ * This takes over Ctrl/Cmd+A outside editable controls and selects the
+ * active file panel or message thread.
  *
  * Returns true when the keystroke was handled (preventDefault + range
  * selection). Pure / exported for unit tests and the Playwright fixture.
@@ -378,16 +376,23 @@ export function applyGlobalSelectAll(e: KeyboardEvent): boolean {
     if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return false
     if (e.key !== 'a' && e.key !== 'A') return false
     if (isSelectAllTargetBlocked(e.target)) return false
-    // The thread container is rendered by HappyThread; its class is the
-    // stable handle between the page-level shortcut and the message DOM.
-    const thread = document.querySelector<HTMLElement>('.happy-thread-messages')
-    if (!thread || !thread.textContent) return false
+    const selection = window.getSelection()
+    const target = e.target instanceof Element ? e.target : null
+    const anchor = selection?.anchorNode
+    const anchorElement = anchor instanceof Element ? anchor : anchor?.parentElement
+    const filePanel = target?.closest('[data-hapi-session-file-panel]')
+        ?? (target === document.body ? anchorElement?.closest('[data-hapi-session-file-panel]') : null)
+    const content = filePanel
+        ? filePanel.querySelector('[data-hapi-file-source-preview] pre')
+            ?? filePanel.querySelector('[data-hapi-file-scroll], [data-hapi-session-files-scroll]')
+            ?? filePanel
+        : document.querySelector('.happy-thread-messages')
+    if (!content?.textContent || !selection) return false
     e.preventDefault()
     const range = document.createRange()
-    range.selectNodeContents(thread)
-    const selection = window.getSelection()
-    selection?.removeAllRanges()
-    selection?.addRange(range)
+    range.selectNodeContents(content)
+    selection.removeAllRanges()
+    selection.addRange(range)
     return true
 }
 
@@ -683,6 +688,7 @@ type SessionChatProps = {
     historyVersion: number
     tailRevision: number
     onBack: () => void
+    onCloseFilePanel?: () => void
     onRefresh: () => void | Promise<void>
     onLoadMore: (onBeforeApply?: (historyVersion: number) => boolean) => Promise<OlderLoadOutcome>
     onLoadNewer?: (resolvePreserveMessageId?: () => string | null) => Promise<boolean>
@@ -2104,13 +2110,17 @@ function SessionChatInner(props: SessionChatProps) {
     }, [switchSession, props.onRefresh])
 
     const handleToggleFiles = useCallback(() => {
+        if (props.onCloseFilePanel) {
+            props.onCloseFilePanel()
+            return
+        }
         setOutlineOpen(false)
         navigate({
             to: '/sessions/$sessionId/files',
             params: { sessionId: props.session.id },
             ...PRESERVE_SESSION_SIDEBAR_SCROLL,
         })
-    }, [navigate, props.session.id])
+    }, [navigate, props.onCloseFilePanel, props.session.id])
 
     const handleToggleOutline = useCallback(() => {
         setOutlineOpen((open) => !open)
@@ -2300,7 +2310,7 @@ function SessionChatInner(props: SessionChatProps) {
                 serviceTier={effectiveCodexServiceTier}
                 onBack={props.onBack}
                 onToggleFiles={props.session.metadata?.path ? handleToggleFiles : undefined}
-                filesActive={false}
+                filesActive={Boolean(props.onCloseFilePanel)}
                 onToggleOutline={handleToggleOutline}
                 outlineActive={outlineOpen}
                 onToggleConciseView={() => setConciseChatMode(!conciseChatMode)}

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams, useSearch } from '@tanstack/react-router'
 import type { GitCommandResponse } from '@/types/api'
 import { FileIcon } from '@/components/FileIcon'
+import { FilePanelCloseButton, FilePanelCloseContext } from '@/components/SessionFiles/FilePanelCloseButton'
 import { CopyIcon, CheckIcon, WrapIcon } from '@/components/icons'
 import { useAppContext } from '@/lib/app-context'
 import { useAppGoBack } from '@/hooks/useAppGoBack'
@@ -221,6 +222,7 @@ export default function FilePage() {
     const { copied: pathCopied, copy: copyPath } = useCopyToClipboard()
     const { copied: contentCopied, copy: copyContent } = useCopyToClipboard()
     const goBack = useAppGoBack()
+    const closeFilePanel = useContext(FilePanelCloseContext)
     const { sessionId } = useParams({ from: '/sessions/$sessionId/file' })
     const search = useSearch({ from: '/sessions/$sessionId/file' })
     const { session } = useSession(api, sessionId)
@@ -403,17 +405,21 @@ export default function FilePage() {
         <div className="flex h-full min-h-0 flex-col">
             <div className="bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
                 <div className="mx-auto w-full max-w-content flex items-center gap-2 p-3 border-b border-[var(--app-border)]">
-                    <button
-                        type="button"
-                        onClick={goBack}
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)]"
-                    >
-                        <BackIcon />
-                    </button>
+                    {closeFilePanel && search.origin === 'chat' ? null : (
+                        <button
+                            type="button"
+                            onClick={goBack}
+                            aria-label={t('common.back')}
+                            className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)]"
+                        >
+                            <BackIcon />
+                        </button>
+                    )}
                     <div className="min-w-0 flex-1">
                         <div className="truncate font-semibold">{fileName}</div>
                         <div className="truncate text-xs text-[var(--app-hint)]">{fileMetadata ?? (filePath || t('file.page.unknownPath'))}</div>
                     </div>
+                    {closeFilePanel ? <FilePanelCloseButton onClose={closeFilePanel} /> : null}
                 </div>
             </div>
 

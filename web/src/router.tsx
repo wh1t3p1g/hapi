@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import { NativeAppPromoButton, NativeAppPromoSheet } from '@/components/NativeAppPromo'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -9,6 +9,7 @@ import {
     createRouter,
     useLocation,
     useMatchRoute,
+    useMatches,
     useNavigate,
     useParams,
     useRouter,
@@ -23,6 +24,7 @@ import {
 } from '@/lib/sessionNavigation'
 import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
+import { FilePanelCloseContext } from '@/components/SessionFiles/FilePanelCloseButton'
 import { SessionList } from '@/components/SessionList'
 import { SidebarShowButton } from '@/components/SidebarToggle'
 import { NewSession } from '@/components/NewSession'
@@ -422,14 +424,41 @@ function classifySendError(
     return { message: t('chat.sendError.fallback'), code: null }
 }
 
-function SessionPage() {
+type RawSendError = {
+    id: number
+    text: string
+    message: string
+    code: string | null
+    scheduledAt: number | null
+    deliveryMode: MessageDeliveryMode
+    mutationStarted: boolean
+    restoreSuppressed: boolean
+}
+
+type SessionPageProps = {
+    onCloseFilePanel?: () => void
+    sendErrors: Record<string, RawSendError>
+    setSendErrors: Dispatch<SetStateAction<Record<string, RawSendError>>>
+    sendErrorIdRef: RefObject<number>
+}
+
+function SessionPage({ onCloseFilePanel, sendErrors, setSendErrors, sendErrorIdRef }: SessionPageProps) {
     const { api, titleSuggestionAvailable = false } = useAppContext()
     const { t } = useTranslation()
-    const goBack = useAppGoBack()
     const navigate = useNavigate()
+    const goBack = useCallback(() => {
+        void navigate({ to: '/sessions', ...PRESERVE_SESSION_SIDEBAR_SCROLL })
+    }, [navigate])
     const queryClient = useQueryClient()
     const addToast = useAddToast()
     const { sessionId } = useParams({ from: '/sessions/$sessionId' })
+    const router = useRouter()
+    const getCurrentSessionRouteId = useCallback(() => {
+        const match = router.state.matches.at(-1)
+        return match && 'sessionId' in match.params && match.params.sessionId === sessionId
+            ? match.routeId
+            : undefined
+    }, [router, sessionId])
     const { outline, messageId, messageQuery, pendingRequestId } = useSearch({ from: '/sessions/$sessionId' })
     const {
         effectiveMessageId: effectiveInitialMessageId,
@@ -485,36 +514,7 @@ function SessionPage() {
         return outcome.kind === 'caught-up'
     }, [loadNewerMessages])
 
-    // Tracks the most recent send the hub rejected (4xx/5xx/network), keyed
-    // by the session the failed POST actually targeted (post-resolveSessionId).
-    // assistant-ui clears the composer eagerly when a send is invoked, so to
-    // retain the typed text on error we keep it here and hand it back to the
-    // composer for restore + visual error affordance.  Keying by sessionId
-    // covers the inactive-session resume race: useSendMessage can resolve
-    // the target id, kick off async navigation to it, and then have the POST
-    // fail before navigation completes.  Without keying, we'd restore the
-    // text into the OLD session's composer and the next render would clear
-    // it.  The bumped `id` still lets the composer dedupe restorations of
-    // identical text.
-    //
-    // We persist the classifier `code` (not the bound action) so the
-    // composer-visible action stays reactive to `reopeningSessionId` state
-    // changes -- the action is built fresh on each render from {raw error
-    // record} x {current reopen state}.  See classifySendError + the
-    // Reopen affordance below.
-    type RawSendError = {
-        id: number
-        text: string
-        message: string
-        code: string | null
-        scheduledAt: number | null
-        deliveryMode: MessageDeliveryMode
-        mutationStarted: boolean
-        restoreSuppressed: boolean
-    }
-    const [sendErrors, setSendErrors] = useState<Record<string, RawSendError>>({})
     const [reopeningSessionId, setReopeningSessionId] = useState<string | null>(null)
-    const sendErrorIdRef = useRef(0)
     const clearSendError = useCallback(() => {
         setSendErrors((prev) => {
             if (!(sessionId in prev)) return prev
@@ -522,7 +522,7 @@ function SessionPage() {
             delete next[sessionId]
             return next
         })
-    }, [sessionId])
+    }, [sessionId, setSendErrors])
 
     const suppressSendErrorRestore = useCallback((id: number) => {
         setSendErrors((prev) => {
@@ -533,7 +533,7 @@ function SessionPage() {
                 [sessionId]: { ...current, restoreSuppressed: true }
             }
         })
-    }, [sessionId])
+    }, [sessionId, setSendErrors])
 
     // Reopen recovery (#918): one-click affordance attached to the inline
     // composer error when the rejected send was inactive-session.  Mirrors
@@ -583,7 +583,7 @@ function SessionPage() {
                 setReopeningSessionId(null)
             }
         })()
-    }, [api, queryClient, navigate, addToast, t])
+    }, [api, queryClient, navigate, addToast, setSendErrors, t])
 
     const cursorReopenGate = resolveCursorReopenGate({
         applicable: cursorChatStoreApplicable,
@@ -677,12 +677,14 @@ function SessionPage() {
             }))
             void queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
         }
-        navigate({
-            to: '/sessions/$sessionId',
-            params: { sessionId: resolvedSessionId },
-            replace: true,
-            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-        })
+        if (resolvedSessionId !== sessionId || !isSessionFileRoute(getCurrentSessionRouteId())) {
+            navigate({
+                to: '/sessions/$sessionId',
+                params: { sessionId: resolvedSessionId },
+                replace: true,
+                ...PRESERVE_SESSION_SIDEBAR_SCROLL,
+            })
+        }
         if (api) {
             void refreshSessionDetailPreservingActive(
                 queryClient,
@@ -691,7 +693,7 @@ function SessionPage() {
             )
             void syncTailMessages(api, resolvedSessionId).catch(() => {})
         }
-    }, [api, navigate, queryClient, session])
+    }, [api, getCurrentSessionRouteId, navigate, queryClient, session, sessionId])
 
     const resolveVoiceSessionId = useCallback(async (currentSessionId: string) => {
         if (!api) throw new Error('API unavailable')
@@ -706,11 +708,16 @@ function SessionPage() {
     // they moved. The router instance is stable and its state is read live at
     // callback time — a render-time pathname would be stale once the source
     // SessionPage unmounts.
-    const router = useRouter()
+    const filePanelOpen = useRef(false)
+    useLayoutEffect(() => {
+        filePanelOpen.current = Boolean(onCloseFilePanel)
+        return () => { filePanelOpen.current = false }
+    }, [onCloseFilePanel])
     const handleVoiceSessionResolved = useCallback((resolvedSessionId: string) => {
-        if (!isOnSessionPage(router.state.location.pathname, sessionId)) return
+        const isChatWithFiles = filePanelOpen.current && isSessionFileRoute(getCurrentSessionRouteId())
+        if (!isChatWithFiles && !isOnSessionPage(router.state.location.pathname, sessionId)) return
         handleSessionResolved(resolvedSessionId)
-    }, [handleSessionResolved, router, sessionId])
+    }, [getCurrentSessionRouteId, handleSessionResolved, router, sessionId])
 
     const {
         sendMessage,
@@ -732,12 +739,12 @@ function SessionPage() {
             })
         },
         onError: (info: SendErrorInfo) => {
-            sendErrorIdRef.current += 1
+            const id = ++sendErrorIdRef.current
             const { message, code } = classifySendError(info.error, t)
             setSendErrors((prev) => ({
                 ...prev,
                 [info.sessionId]: {
-                    id: sendErrorIdRef.current,
+                    id,
                     text: info.text,
                     message,
                     code,
@@ -881,45 +888,41 @@ function SessionPage() {
         ])
     }, [refetchMessages, refetchSession])
 
-    const handleInitialOutlineConsumed = useCallback(() => {
-        navigate({
-            to: '/sessions/$sessionId',
+    const clearChatRouteSearch = useCallback((...keys: ('outline' | 'pendingRequestId' | 'messageId' | 'messageQuery')[]) => {
+        const routeId = getCurrentSessionRouteId()
+        if (routeId !== '/sessions/$sessionId' && !isSessionFileRoute(routeId)) return
+        const search = { ...router.state.location.search }
+        if (!keys.some((key) => key in search)) return
+        for (const key of keys) delete search[key]
+        void router.navigate({
+            to: routeId,
             params: { sessionId },
+            search,
+            hash: true,
             replace: true,
             ...PRESERVE_SESSION_SIDEBAR_SCROLL,
         })
-    }, [navigate, sessionId])
+    }, [getCurrentSessionRouteId, router, sessionId])
+
+    const handleInitialOutlineConsumed = useCallback(() => {
+        clearChatRouteSearch('outline')
+    }, [clearChatRouteSearch])
 
     const handleInitialPendingRequestConsumed = useCallback(() => {
-        navigate({
-            to: '/sessions/$sessionId',
-            params: { sessionId },
-            replace: true,
-            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-        })
-    }, [navigate, sessionId])
+        clearChatRouteSearch('pendingRequestId')
+    }, [clearChatRouteSearch])
 
     const handleInitialMessageConsumed = useCallback(() => {
         if (messageId) {
             consumeMessageTarget()
         }
-        navigate({
-            to: '/sessions/$sessionId',
-            params: { sessionId },
-            replace: true,
-            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-        })
-    }, [consumeMessageTarget, messageId, navigate, sessionId])
+        clearChatRouteSearch('messageId', 'messageQuery')
+    }, [clearChatRouteSearch, consumeMessageTarget, messageId])
 
     const handleSearchTargetDismissed = useCallback(() => {
         clearConsumedMessageTarget()
-        navigate({
-            to: '/sessions/$sessionId',
-            params: { sessionId },
-            replace: true,
-            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-        })
-    }, [clearConsumedMessageTarget, navigate, sessionId])
+        clearChatRouteSearch('messageId', 'messageQuery')
+    }, [clearChatRouteSearch, clearConsumedMessageTarget])
 
     if (!session) {
         if (sessionError) {
@@ -957,6 +960,7 @@ function SessionPage() {
         <SessionChat
             readThroughRevision={readThroughRevision}
             api={api}
+            onCloseFilePanel={onCloseFilePanel}
             titleSuggestionAvailable={titleSuggestionAvailable}
             session={session}
             cursorChatOnDisk={cursorChatStoreStatus?.onDisk}
@@ -1003,11 +1007,11 @@ function SessionPage() {
             onInitialTargetConsumed={handleInitialMessageConsumed}
             onSearchTargetDismissed={handleSearchTargetDismissed}
             onAbortRestore={(text) => {
-                sendErrorIdRef.current += 1
+                const id = ++sendErrorIdRef.current
                 setSendErrors((prev) => ({
                     ...prev,
                     [sessionId]: {
-                        id: sendErrorIdRef.current,
+                        id,
                         text,
                         message: t('chat.sendError.aborted'),
                         code: 'abort',
@@ -1022,15 +1026,79 @@ function SessionPage() {
     )
 }
 
+function isSessionFileRoute(routeId: string | undefined): routeId is '/sessions/$sessionId/files' | '/sessions/$sessionId/file' {
+    return routeId === '/sessions/$sessionId/files' || routeId === '/sessions/$sessionId/file'
+}
+
+const MIN_FILE_SPLIT_WIDTH = 800
+
+function SessionWorkspace({ sessionId }: { sessionId: string }) {
+    const { t } = useTranslation()
+    const navigate = useNavigate()
+    const routeId = useMatches({ select: matches => matches.at(-1)?.routeId })
+    const workspaceRef = useRef<HTMLDivElement>(null)
+    const [canSplit, setCanSplit] = useState(false)
+    const [sendErrors, setSendErrors] = useState<Record<string, RawSendError>>({})
+    const sendErrorIdRef = useRef(0)
+    const isChat = routeId === '/sessions/$sessionId'
+    const filePanelOpen = canSplit && isSessionFileRoute(routeId)
+
+    useLayoutEffect(() => {
+        const workspace = workspaceRef.current
+        if (!workspace) return
+        const measure = () => setCanSplit(workspace.clientWidth >= MIN_FILE_SPLIT_WIDTH)
+        measure()
+        if (typeof ResizeObserver === 'undefined') return
+        const observer = new ResizeObserver(measure)
+        observer.observe(workspace)
+        return () => observer.disconnect()
+    }, [])
+
+    const closeFilePanel = useCallback(() => {
+        void navigate({
+            to: '/sessions/$sessionId',
+            params: { sessionId },
+            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
+        })
+    }, [navigate, sessionId])
+
+    return (
+        <div ref={workspaceRef} className="flex h-full min-h-0 min-w-0">
+            {isChat || filePanelOpen ? (
+                <div className="relative min-w-0 flex-1">
+                    <SessionPage
+                        onCloseFilePanel={filePanelOpen ? closeFilePanel : undefined}
+                        sendErrors={sendErrors}
+                        setSendErrors={setSendErrors}
+                        sendErrorIdRef={sendErrorIdRef}
+                    />
+                </div>
+            ) : null}
+            {isChat ? null : (
+                <div
+                    role={filePanelOpen ? 'complementary' : undefined}
+                    aria-label={filePanelOpen ? t('session.title') : undefined}
+                    data-hapi-session-file-panel={filePanelOpen || undefined}
+                    tabIndex={filePanelOpen ? -1 : undefined}
+                    className={filePanelOpen
+                        ? 'min-w-0 w-[45%] shrink-0 border-l border-[var(--app-divider)]'
+                        : 'min-w-0 flex-1'}
+                >
+                    <FilePanelCloseContext.Provider value={filePanelOpen ? closeFilePanel : null}>
+                        <Outlet />
+                    </FilePanelCloseContext.Provider>
+                </div>
+            )}
+        </div>
+    )
+}
+
 function SessionDetailRoute() {
     const { api } = useAppContext()
-    const pathname = useLocation({ select: location => location.pathname })
     const { sessionId } = useParams({ from: '/sessions/$sessionId' })
     const navigate = useNavigate()
     const { session, notFound: sessionNotFound } = useSession(api, sessionId)
     useSessionBrowserTitle(session)
-    const basePath = `/sessions/${sessionId}`
-    const isChat = pathname === basePath || pathname === `${basePath}/`
     const supersedingSessionId = getSupersedingSessionId(sessionId, session?.metadata)
     const observedSessionRef = useRef<{
         sessionId: string
@@ -1098,7 +1166,7 @@ function SessionDetailRoute() {
         )
     }
 
-    return isChat ? <SessionPage /> : <Outlet />
+    return <SessionWorkspace sessionId={sessionId} />
 }
 
 function NewSessionPage() {

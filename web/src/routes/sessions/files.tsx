@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { PRESERVE_SESSION_SIDEBAR_SCROLL } from '@/lib/sessionNavigation'
 import type { FileSearchItem, GitFileStatus } from '@/types/api'
 import { FileIcon } from '@/components/FileIcon'
 import { ExpandableErrorMessage } from '@/components/ExpandableErrorMessage'
 import { DirectoryTree } from '@/components/SessionFiles/DirectoryTree'
+import { FilePanelCloseButton, FilePanelCloseContext } from '@/components/SessionFiles/FilePanelCloseButton'
 import { FileActionMenu } from '@/components/FileActionMenu'
 import { useFileMenuTrigger } from '@/hooks/useFileMenuTrigger'
 import type { AnchoredMenuPoint } from '@/hooks/useAnchoredMenu'
@@ -352,6 +353,7 @@ export default function FilesPage() {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const goBack = useAppGoBack()
+    const closeFilePanel = useContext(FilePanelCloseContext)
     const { sessionId } = useParams({ from: '/sessions/$sessionId/files' })
     const search = useSearch({ from: '/sessions/$sessionId/files' })
     const { session } = useSession(api, sessionId)
@@ -533,29 +535,38 @@ export default function FilesPage() {
 
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <SessionHeader
-                session={session}
-                onBack={goBack}
-                onToggleFiles={session.metadata?.path ? handleToggleFiles : undefined}
-                filesActive={true}
-                onToggleOutline={handleToggleOutline}
-                outlineActive={false}
-                api={api}
-                titleSuggestionAvailable={titleSuggestionAvailable}
-                onSessionDeleted={goBack}
-                onSessionReopened={async (newSessionId) => {
-                    await transferComposerDraftThenNavigate(
-                        session.id,
-                        newSessionId,
-                        () => navigate({
-                            to: '/sessions/$sessionId/files',
-                            params: { sessionId: newSessionId },
-                            replace: true,
-                            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-                        }),
-                    )
-                }}
-            />
+            {closeFilePanel ? (
+                <div className="border-b border-[var(--app-border)] bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
+                    <div className="mx-auto flex w-full max-w-content items-center justify-between gap-2 p-3">
+                        <h2 className="font-semibold">{t('session.title')}</h2>
+                        <FilePanelCloseButton onClose={closeFilePanel} />
+                    </div>
+                </div>
+            ) : (
+                <SessionHeader
+                    session={session}
+                    onBack={goBack}
+                    onToggleFiles={session.metadata?.path ? handleToggleFiles : undefined}
+                    filesActive={true}
+                    onToggleOutline={handleToggleOutline}
+                    outlineActive={false}
+                    api={api}
+                    titleSuggestionAvailable={titleSuggestionAvailable}
+                    onSessionDeleted={goBack}
+                    onSessionReopened={async (newSessionId) => {
+                        await transferComposerDraftThenNavigate(
+                            session.id,
+                            newSessionId,
+                            () => navigate({
+                                to: '/sessions/$sessionId/files',
+                                params: { sessionId: newSessionId },
+                                replace: true,
+                                ...PRESERVE_SESSION_SIDEBAR_SCROLL,
+                            }),
+                        )
+                    }}
+                />
+            )}
 
             <div className="bg-[var(--app-bg)]">
                 <div className="mx-auto flex w-full max-w-content items-center gap-2 border-b border-[var(--app-border)] p-3">
