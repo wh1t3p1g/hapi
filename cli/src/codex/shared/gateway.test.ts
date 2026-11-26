@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { WebSocket, WebSocketServer } from 'ws';
 import { CodexAppServerClient } from '../codexAppServerClient';
 import { startCodexGateway, type Envelope } from './gateway';
+import { WebSocket, WebSocketServer } from './websocket';
 
 async function fixture(after: (request: Envelope, response: Envelope, connection: string) => Promise<void>) {
     const engine = new WebSocketServer({ port: 0, host: '127.0.0.1' });

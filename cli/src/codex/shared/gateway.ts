@@ -1,9 +1,9 @@
 import { createServer } from 'node:http';
 import { chmod, unlink } from 'node:fs/promises';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
-import WebSocket, { WebSocketServer } from 'ws';
 import { z } from 'zod';
 import { CODEX_WEBSOCKET_MAX_PAYLOAD } from '../websocketLimits';
+import { WebSocket, WebSocketServer, openWebSocket } from './websocket';
 
 export const EnvelopeSchema = z.object({
     id: z.union([z.string(), z.number()]).optional(),
@@ -15,9 +15,6 @@ export function record(value: unknown): Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 export function string(value: unknown): string | undefined { return typeof value === 'string' && value.length ? value : undefined; }
-export function socketUrl(endpoint: string): string {
-    return endpoint.startsWith('unix://') ? `ws+unix://${endpoint.slice(7)}:/` : endpoint;
-}
 
 export type GatewayHooks = {
     before(request: Envelope, connectionId: string): Promise<Envelope>;
@@ -46,7 +43,7 @@ export async function startCodexGateway(options: {
     });
     websocket.on('connection', downstream => {
         const connectionId = randomUUID();
-        const upstream = new WebSocket(socketUrl(options.upstream), {
+        const upstream = openWebSocket(options.upstream, {
             headers: { Host: 'localhost', ...(options.upstreamToken ? { Authorization: `Bearer ${options.upstreamToken}` } : {}) },
             handshakeTimeout: 10_000, maxPayload: CODEX_WEBSOCKET_MAX_PAYLOAD, perMessageDeflate: false
         });
