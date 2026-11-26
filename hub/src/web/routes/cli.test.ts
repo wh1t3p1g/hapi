@@ -1,4 +1,7 @@
-import { afterEach, beforeAll, describe, expect, it, mock } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { Hono } from 'hono'
 import type { SyncEngine } from '../../sync/syncEngine'
@@ -22,11 +25,43 @@ function authHeaders() {
 // Actions runners under a full hub suite occasionally exceed bun's default 5s
 // hook budget during createConfiguration (seen as an unnamed
 // beforeEach/afterEach timeout). Give setup headroom — tiann/hapi#2514.
+let previousHapiHome: string | undefined
+let createdHapiHome: string | undefined
+let testDataDir: string | undefined
+
 beforeAll(async () => {
+    // createConfiguration() is a process-wide singleton, so another test file
+    // may already have initialized it with a temp dataDir it later removed.
+    // Keep this file self-sufficient: reuse a live config or create a private one.
+    previousHapiHome = process.env.HAPI_HOME
+    if (process.env.HAPI_HOME) {
+        try {
+            mkdirSync(process.env.HAPI_HOME, { recursive: true })
+        } catch {
+            createdHapiHome = mkdtempSync(join(tmpdir(), 'hapi-cli-routes-test-'))
+            process.env.HAPI_HOME = createdHapiHome
+        }
+    } else {
+        createdHapiHome = mkdtempSync(join(tmpdir(), 'hapi-cli-routes-test-'))
+        process.env.HAPI_HOME = createdHapiHome
+    }
     const config = await createConfiguration()
+    testDataDir = config.dataDir
+    mkdirSync(testDataDir, { recursive: true })
     config._setCliApiToken('test-token', 'env', false)
     await config.setGithubPrAwareness(true)
 }, 30_000)
+
+afterAll(() => {
+    if (previousHapiHome === undefined) {
+        delete process.env.HAPI_HOME
+    } else {
+        process.env.HAPI_HOME = previousHapiHome
+    }
+    if (createdHapiHome && testDataDir === createdHapiHome) {
+        rmSync(testDataDir, { recursive: true, force: true })
+    }
+})
 
 describe('cli shutdown preparation', () => {
     function fixture(machineId = 'machine-1') {

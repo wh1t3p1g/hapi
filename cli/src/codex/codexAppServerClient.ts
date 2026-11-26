@@ -1,10 +1,10 @@
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import WebSocket from 'ws';
 import { logger } from '@/ui/logger';
 import { JsonLineParser } from '@/utils/jsonLineParser';
 import { killProcessByChildProcess } from '@/utils/process';
 import { CODEX_WEBSOCKET_MAX_PAYLOAD } from './websocketLimits';
+import { WebSocket, openWebSocket } from './shared/websocket';
 import { resolveModelCatalogArgs } from './utils/modelCatalog';
 import { resolveSelectedCodexCommand } from './utils/codexExecutable';
 import type {
@@ -231,8 +231,7 @@ export class CodexAppServerClient extends JsonLineParser {
 
         if (this.options.endpoint) {
             const endpoint = this.options.endpoint;
-            const url = endpoint.startsWith('unix://') ? `ws+unix://${endpoint.slice(7)}:/` : endpoint;
-            const socket = new WebSocket(url, {
+            const socket = openWebSocket(endpoint, {
                 headers: { Host: 'localhost', ...(this.options.token ? { Authorization: `Bearer ${this.options.token}` } : {}) },
                 maxPayload: CODEX_WEBSOCKET_MAX_PAYLOAD,
                 perMessageDeflate: false,

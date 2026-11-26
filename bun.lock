@@ -29,13 +29,13 @@
         "fastify": "^5.6.2",
         "fastify-type-provider-zod": "6.1.0",
         "hapi-hub": "workspace:*",
+        "hapi-ws": "npm:ws@8.21.0",
         "ink": "^6.6.0",
         "ps-list": "^9.0.0",
         "react": "^19.2.3",
         "socket.io-client": "^4.8.3",
         "tar": "^7.5.2",
         "vscode-jsonrpc": "8.2.0",
-        "ws": "8.21.0",
         "yaml": "^2.8.2",
         "zod": "^4.2.1",
       },
@@ -1845,6 +1845,8 @@
     "hapi-web": ["hapi-web@workspace:web"],
 
     "hapi-website": ["hapi-website@workspace:website"],
+
+    "hapi-ws": ["ws@8.21.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g=="],
 
     "has-bigints": ["has-bigints@1.1.0", "https://registry.npmmirror.com/has-bigints/-/has-bigints-1.1.0.tgz", {}, "sha512-R3pbpkcIqv2Pm3dUwgjclDRVmWpTJW2DcMzcIhEXEx1oh/CEMObMm3KLmRJOdvhM7o4uQBnwr8pzRK2sJWIqfg=="],
 
